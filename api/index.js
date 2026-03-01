@@ -334,7 +334,7 @@ app.get('/api/groups/:id/expenses', requireAuth, async (req, res) => {
 
 app.post('/api/groups/:id/expenses', requireAuth, async (req, res) => {
     try {
-        const { description, amount, date, splits } = req.body;
+        const { description, amount, date, splits, paid_by } = req.body;
         if (!description || !amount) {
             return res.status(400).json({ error: 'Descrição e valor são obrigatórios' });
         }
@@ -343,11 +343,17 @@ app.post('/api/groups/:id/expenses', requireAuth, async (req, res) => {
             [req.params.id, req.userId]);
         if (!isMember) return res.status(403).json({ error: 'Acesso negado' });
 
+        // Use paid_by from body or default to current user
+        const payer = paid_by || req.userId;
+        const payerIsMember = await queryOne('SELECT 1 as ok FROM group_members WHERE group_id = ? AND user_id = ?',
+            [req.params.id, payer]);
+        if (!payerIsMember) return res.status(400).json({ error: 'Pagador não é membro do grupo' });
+
         const expenseId = uuidv4();
         const expenseDate = date || new Date().toISOString().split('T')[0];
 
         await execute('INSERT INTO expenses (id, group_id, paid_by, description, amount, date) VALUES (?, ?, ?, ?, ?, ?)',
-            [expenseId, req.params.id, req.userId, description, amount, expenseDate]);
+            [expenseId, req.params.id, payer, description, amount, expenseDate]);
 
         if (splits && splits.length > 0) {
             for (const split of splits) {
@@ -477,6 +483,76 @@ app.get('/api/groups/:id/settlements', requireAuth, async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Erro ao buscar acertos' });
+    }
+});
+
+// --- Delete Settlement ---
+app.delete('/api/settlements/:id', requireAuth, async (req, res) => {
+    try {
+        const settlement = await queryOne('SELECT * FROM settlements WHERE id = ?', [req.params.id]);
+        if (!settlement) return res.status(404).json({ error: 'Acerto não encontrado' });
+        await execute('DELETE FROM settlements WHERE id = ?', [req.params.id]);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erro ao excluir acerto' });
+    }
+});
+
+// --- Remove Member ---
+app.delete('/api/groups/:id/members/:userId', requireAuth, async (req, res) => {
+    try {
+        const group = await queryOne('SELECT * FROM groups_ WHERE id = ?', [req.params.id]);
+        if (!group) return res.status(404).json({ error: 'Grupo não encontrado' });
+
+        if (group.created_by === req.params.userId) {
+            return res.status(400).json({ error: 'Não é possível remover o criador do grupo' });
+        }
+
+        await execute('DELETE FROM group_members WHERE group_id = ? AND user_id = ?',
+            [req.params.id, req.params.userId]);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erro ao remover membro' });
+    }
+});
+
+// --- Dashboard Summary (net balances across all groups) ---
+app.get('/api/dashboard/summary', requireAuth, async (req, res) => {
+    try {
+        // Get all groups user is member of
+        const groups = await queryAll('SELECT group_id FROM group_members WHERE user_id = ?', [req.userId]);
+        let totalOwed = 0; // others owe me
+        let totalOwe = 0;  // I owe others
+
+        for (const g of groups) {
+            // What I paid
+            const paid = await queryOne('SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE group_id = ? AND paid_by = ?',
+                [g.group_id, req.userId]);
+            // My share of expenses
+            const myShare = await queryOne(`SELECT COALESCE(SUM(es.amount), 0) as total FROM expense_splits es JOIN expenses e ON e.id = es.expense_id WHERE e.group_id = ? AND es.user_id = ?`,
+                [g.group_id, req.userId]);
+            // What I settled (paid to others)
+            const settledOut = await queryOne('SELECT COALESCE(SUM(amount), 0) as total FROM settlements WHERE group_id = ? AND from_user = ?',
+                [g.group_id, req.userId]);
+            // What was settled to me
+            const settledIn = await queryOne('SELECT COALESCE(SUM(amount), 0) as total FROM settlements WHERE group_id = ? AND to_user = ?',
+                [g.group_id, req.userId]);
+
+            const balance = (paid.total - myShare.total) + (settledOut.total - settledIn.total);
+            if (balance > 0.01) totalOwed += balance;
+            if (balance < -0.01) totalOwe += Math.abs(balance);
+        }
+
+        res.json({
+            totalOwed: Math.round(totalOwed * 100) / 100,
+            totalOwe: Math.round(totalOwe * 100) / 100,
+            netBalance: Math.round((totalOwed - totalOwe) * 100) / 100
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erro ao calcular resumo' });
     }
 });
 

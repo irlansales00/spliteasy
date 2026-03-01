@@ -880,6 +880,33 @@ a:hover {
   border-color: var(--border-hover);
 }
 
+.member-remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 2px 4px;
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+  margin-left: 2px;
+  line-height: 1;
+}
+
+.member-remove-btn:hover {
+  color: var(--accent-danger);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.settlement-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  animation: fadeIn 0.4s ease backwards;
+}
+
 /* ===== EXPENSE LIST ===== */
 .expense-list {
   display: flex;

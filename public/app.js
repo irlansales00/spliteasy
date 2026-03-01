@@ -31,6 +31,11 @@ const API = {
   getBalances: (id) => API.request(`/api/groups/${id}/balances`),
   settle: (id, body) => API.request(`/api/groups/${id}/settle`, { method: 'POST', body }),
   getSettlements: (id) => API.request(`/api/groups/${id}/settlements`),
+  deleteSettlement: (id) => API.request(`/api/settlements/${id}`, { method: 'DELETE' }),
+  // Members
+  removeMember: (groupId, userId) => API.request(`/api/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
+  // Dashboard
+  getDashboardSummary: () => API.request('/api/dashboard/summary'),
 };
 
 // ===== STATE =====
@@ -229,12 +234,13 @@ function renderRegister() {
 
 async function renderDashboard() {
   renderLoading();
+  let summary = { totalOwed: 0, totalOwe: 0, netBalance: 0 };
   try {
-    state.groups = await API.getGroups();
+    [state.groups, summary] = await Promise.all([
+      API.getGroups(),
+      API.getDashboardSummary().catch(() => summary),
+    ]);
   } catch { state.groups = []; }
-
-  let totalOwed = 0;
-  let totalOwe = 0;
 
   render(`
     <div class="app-layout">
@@ -251,12 +257,12 @@ async function renderDashboard() {
             <div class="stat-value">${state.groups.length}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Total em despesas</div>
-            <div class="stat-value">${formatCurrency(state.groups.reduce((s, g) => s + (g.total_expenses || 0), 0))}</div>
+            <div class="stat-label">Te devem</div>
+            <div class="stat-value positive">${formatCurrency(summary.totalOwed)}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Membros totais</div>
-            <div class="stat-value">${state.groups.reduce((s, g) => s + (g.member_count || 0), 0)}</div>
+            <div class="stat-label">Você deve</div>
+            <div class="stat-value negative">${formatCurrency(summary.totalOwe)}</div>
           </div>
         </div>
 
@@ -339,9 +345,10 @@ async function renderGroup() {
 
         <div class="members-list">
           ${g.members.map(m => `
-            <div class="member-chip">
+            <div class="member-chip" data-member-id="${m.id}">
               <div class="avatar" style="background:${m.avatar_color}">${getInitials(m.username)}</div>
               ${escapeHtml(m.username)}${m.id === state.user.id ? ' (você)' : ''}
+              ${m.id !== state.user.id && g.created_by === state.user.id ? `<button class="member-remove-btn" data-user-id="${m.id}" title="Remover">✕</button>` : ''}
             </div>
           `).join('')}
           <button class="btn btn-ghost btn-sm" id="add-member-btn">＋ Adicionar</button>
@@ -377,6 +384,23 @@ async function renderGroup() {
   });
 
   $('#add-member-btn').addEventListener('click', showAddMemberModal);
+
+  // Remove member buttons
+  $$('.member-remove-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm('Remover este membro do grupo?')) {
+        try {
+          await API.removeMember(state.currentGroup.id, btn.dataset.userId);
+          showToast('Membro removido');
+          renderGroup();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+    });
+  });
+
   bindTabListeners();
 
   // Start polling
@@ -432,6 +456,21 @@ function bindTabListeners() {
         try {
           await API.deleteExpense(btn.dataset.id);
           showToast('Despesa excluída');
+          renderGroup();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+    });
+  });
+
+  $$('.settlement-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm('Excluir este acerto?')) {
+        try {
+          await API.deleteSettlement(btn.dataset.id);
+          showToast('Acerto excluído');
           renderGroup();
         } catch (err) {
           showToast(err.message, 'error');
@@ -537,6 +576,9 @@ function renderSettlementsTab() {
               <p>${formatDate(s.date)}</p>
             </div>
             <div class="settlement-amount">${formatCurrency(s.amount)}</div>
+            <div class="expense-delete">
+              <button class="btn btn-ghost btn-sm settlement-delete-btn" data-id="${s.id}" title="Excluir">🗑️</button>
+            </div>
           </div>
         `).join('')}
       </div>
@@ -714,6 +756,16 @@ function showAddExpenseModal() {
         <input type="number" id="exp-amount" placeholder="0.00" step="0.01" min="0.01" required>
       </div>
       <div class="form-group">
+        <label>Quem pagou?</label>
+        <select id="exp-paid-by">
+          ${members.map(m => `
+            <option value="${m.id}" ${m.id === state.user.id ? 'selected' : ''}>
+              ${escapeHtml(m.username)}${m.id === state.user.id ? ' (você)' : ''}
+            </option>
+          `).join('')}
+        </select>
+      </div>
+      <div class="form-group">
         <label>Data</label>
         <input type="date" id="exp-date" value="${today}">
       </div>
@@ -844,6 +896,7 @@ function showAddExpenseModal() {
         description: overlay.querySelector('#exp-desc').value.trim(),
         amount,
         date: overlay.querySelector('#exp-date').value,
+        paid_by: overlay.querySelector('#exp-paid-by').value,
         splits,
       });
       overlay.remove();
