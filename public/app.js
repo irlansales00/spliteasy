@@ -32,6 +32,7 @@ const API = {
   settle: (id, body) => API.request(`/api/groups/${id}/settle`, { method: 'POST', body }),
   getSettlements: (id) => API.request(`/api/groups/${id}/settlements`),
   deleteSettlement: (id) => API.request(`/api/settlements/${id}`, { method: 'DELETE' }),
+  batchDeleteExpenses: (ids) => API.request('/api/expenses/batch-delete', { method: 'POST', body: { ids } }),
   // Members
   removeMember: (groupId, userId) => API.request(`/api/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
   // Dashboard
@@ -454,6 +455,79 @@ function bindTabListeners() {
     });
   });
 
+  // Selection mode toggle
+  const selectToggle = $('#select-mode-toggle');
+  if (selectToggle) {
+    selectToggle.addEventListener('change', () => {
+      const show = selectToggle.checked;
+      $$('.expense-checkbox').forEach(cb => cb.style.display = show ? 'block' : 'none');
+      const bar = $('#batch-bar');
+      if (bar) bar.style.display = show ? 'flex' : 'none';
+      if (!show) {
+        $$('.expense-checkbox').forEach(cb => cb.checked = false);
+        updateSelectedCount();
+      }
+    });
+  }
+
+  // Select all
+  const selectAll = $('#select-all');
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      $$('.expense-checkbox').forEach(cb => cb.checked = selectAll.checked);
+      updateSelectedCount();
+    });
+  }
+
+  // Individual checkbox change
+  $$('.expense-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateSelectedCount);
+  });
+
+  // Batch delete
+  const batchBtn = $('#batch-delete-btn');
+  if (batchBtn) {
+    batchBtn.addEventListener('click', async () => {
+      const ids = Array.from($$('.expense-checkbox:checked')).map(cb => cb.dataset.id);
+      if (ids.length === 0) return showToast('Nenhuma despesa selecionada', 'error');
+      if (!confirm(`Excluir ${ids.length} despesa${ids.length > 1 ? 's' : ''}?`)) return;
+
+      try {
+        await API.batchDeleteExpenses(ids);
+        // Animate out
+        ids.forEach(id => {
+          const el = document.querySelector(`[data-expense-id="${id}"]`);
+          if (el) {
+            el.style.transition = 'all 0.3s ease';
+            el.style.opacity = '0';
+            el.style.transform = 'translateX(-30px)';
+            el.style.maxHeight = el.offsetHeight + 'px';
+            setTimeout(() => {
+              el.style.maxHeight = '0';
+              el.style.padding = '0';
+              el.style.margin = '0';
+              el.style.overflow = 'hidden';
+            }, 200);
+            setTimeout(() => el.remove(), 400);
+          }
+        });
+        // Update state
+        state.currentGroupExpenses = state.currentGroupExpenses.filter(e => !ids.includes(e.id));
+        showToast(`${ids.length} despesa${ids.length > 1 ? 's' : ''} excluída${ids.length > 1 ? 's' : ''}!`);
+        // Refresh summary after animation
+        setTimeout(() => {
+          const container = $('#tab-content');
+          if (container) {
+            container.innerHTML = renderExpensesTab();
+            bindTabListeners();
+          }
+        }, 500);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
   $$('.settle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const to = btn.dataset.to;
@@ -462,14 +536,44 @@ function bindTabListeners() {
     });
   });
 
+  // Dynamic single expense delete (smooth fade-out)
   $$('.expense-delete .btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (confirm('Excluir esta despesa?')) {
+        const id = btn.dataset.id;
         try {
-          await API.deleteExpense(btn.dataset.id);
+          await API.deleteExpense(id);
+          // Animate removal
+          const el = document.querySelector(`[data-expense-id="${id}"]`);
+          if (el) {
+            el.style.transition = 'all 0.3s ease';
+            el.style.opacity = '0';
+            el.style.transform = 'translateX(-30px)';
+            el.style.maxHeight = el.offsetHeight + 'px';
+            setTimeout(() => {
+              el.style.maxHeight = '0';
+              el.style.padding = '0';
+              el.style.margin = '0';
+              el.style.overflow = 'hidden';
+            }, 200);
+            setTimeout(() => el.remove(), 400);
+          }
+          // Update state
+          state.currentGroupExpenses = state.currentGroupExpenses.filter(exp => exp.id !== id);
+          state.currentGroupBalances = await API.getBalances(state.currentGroup.id);
           showToast('Despesa excluída');
-          renderGroup();
+          // Refresh summary
+          setTimeout(() => {
+            const summary = document.querySelector('.month-summary');
+            if (summary) {
+              const filtered = state.expenseMonthFilter === 'all'
+                ? state.currentGroupExpenses
+                : state.currentGroupExpenses.filter(exp => getMonthKey(exp.date) === state.expenseMonthFilter);
+              const total = filtered.reduce((s, exp) => s + exp.amount, 0);
+              summary.innerHTML = `<span>${filtered.length} despesa${filtered.length !== 1 ? 's' : ''}</span><span class="month-total">Total: <strong>${formatCurrency(total)}</strong></span>`;
+            }
+          }, 400);
         } catch (err) {
           showToast(err.message, 'error');
         }
@@ -491,6 +595,14 @@ function bindTabListeners() {
       }
     });
   });
+}
+
+function updateSelectedCount() {
+  const count = $$('.expense-checkbox:checked').length;
+  const el = $('#selected-count');
+  if (el) el.textContent = `${count} selecionada${count !== 1 ? 's' : ''}`;
+  const btn = $('#batch-delete-btn');
+  if (btn) btn.disabled = count === 0;
 }
 
 function getMonthLabel(dateStr) {
@@ -534,6 +646,12 @@ function renderExpensesTab() {
   return `
     <div class="actions-bar">
       <button class="btn btn-primary btn-sm" id="add-expense-btn">＋ Nova Despesa</button>
+      <label class="select-mode-toggle"><input type="checkbox" id="select-mode-toggle"> Selecionar</label>
+    </div>
+    <div id="batch-bar" class="batch-bar" style="display:none">
+      <label class="batch-check-all"><input type="checkbox" id="select-all"> Todos</label>
+      <span id="selected-count">0 selecionadas</span>
+      <button class="btn btn-danger btn-sm" id="batch-delete-btn">🗑️ Excluir Selecionadas</button>
     </div>
     ${expenses.length === 0 ? `
       <div class="empty-state">
@@ -556,7 +674,8 @@ function renderExpensesTab() {
         ${Array.from(grouped.entries()).map(([monthLabel, items]) => `
           ${state.expenseMonthFilter === 'all' ? `<div class="month-divider"><span>${monthLabel}</span></div>` : ''}
           ${items.map((e, i) => `
-            <div class="expense-item" style="animation-delay:${i * 0.04}s">
+            <div class="expense-item" data-expense-id="${e.id}" style="animation-delay:${i * 0.04}s">
+              <input type="checkbox" class="expense-checkbox" data-id="${e.id}" style="display:none">
               <div class="expense-icon">${getExpenseEmoji(e.description)}</div>
               <div class="expense-info">
                 <h4>${escapeHtml(e.description)}</h4>

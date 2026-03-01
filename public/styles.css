@@ -1374,6 +1374,76 @@ a:hover {
   border-radius: var(--radius-full);
 }
 
+/* ===== BATCH DELETE ===== */
+.actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.select-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.select-mode-toggle input {
+  accent-color: var(--accent-primary);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+  animation: fadeIn 0.2s ease;
+}
+
+.batch-check-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.batch-check-all input {
+  accent-color: var(--accent-danger);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+#selected-count {
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.expense-checkbox {
+  accent-color: var(--accent-danger);
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.expense-item {
+  overflow: hidden;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 640px) {
   .app-header {

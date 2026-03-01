@@ -391,6 +391,24 @@ app.delete('/api/expenses/:id', requireAuth, async (req, res) => {
     }
 });
 
+// --- Batch Delete Expenses ---
+app.post('/api/expenses/batch-delete', requireAuth, async (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'IDs são obrigatórios' });
+        }
+        for (const id of ids) {
+            await execute('DELETE FROM expense_splits WHERE expense_id = ?', [id]);
+            await execute('DELETE FROM expenses WHERE id = ?', [id]);
+        }
+        res.json({ ok: true, deleted: ids.length });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erro ao excluir despesas' });
+    }
+});
+
 // --- Balances Route ---
 app.get('/api/groups/:id/balances', requireAuth, async (req, res) => {
     try {
