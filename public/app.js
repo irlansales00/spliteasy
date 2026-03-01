@@ -692,15 +692,18 @@ function showAddExpenseModal() {
       </div>
       <div id="custom-splits" style="display:none">
         <div class="custom-splits">
-          ${members.map(m => `
+          ${members.map((m, idx) => `
             <div class="custom-split-row">
               <div class="avatar" style="background:${m.avatar_color}">${getInitials(m.username)}</div>
               <span class="member-name">${escapeHtml(m.username)}</span>
-              <input type="number" class="split-amount" data-user-id="${m.id}" placeholder="0.00" step="0.01" min="0">
+              <div class="split-input-wrapper">
+                <span class="split-currency">R$</span>
+                <input type="number" class="split-amount" data-user-id="${m.id}" data-idx="${idx}" placeholder="0.00" step="0.01" min="0">
+              </div>
             </div>
           `).join('')}
         </div>
-        <p style="font-size:0.75rem;color:var(--text-muted);margin-top:8px">A soma deve ser igual ao valor total.</p>
+        <div id="split-remaining" class="split-remaining"></div>
       </div>
       <button type="submit" class="btn btn-primary btn-block" style="margin-top:var(--space-md)">Adicionar Despesa</button>
     </form>
@@ -709,12 +712,76 @@ function showAddExpenseModal() {
   const overlay = showModal('Nova Despesa', body);
   let splitType = 'equal';
 
+  // Dynamic split calculation
+  function updateSplitRemaining() {
+    const totalAmount = parseFloat(overlay.querySelector('#exp-amount').value) || 0;
+    const inputs = overlay.querySelectorAll('.split-amount');
+    let sumFilled = 0;
+    let emptyInputs = [];
+
+    inputs.forEach(input => {
+      const val = parseFloat(input.value);
+      if (!isNaN(val) && input.value !== '') {
+        sumFilled += val;
+      } else {
+        emptyInputs.push(input);
+      }
+    });
+
+    const remaining = Math.round((totalAmount - sumFilled) * 100) / 100;
+
+    // Auto-fill if exactly one input is empty
+    if (emptyInputs.length === 1 && totalAmount > 0) {
+      emptyInputs[0].value = remaining > 0 ? remaining.toFixed(2) : '0.00';
+    }
+
+    // Update remaining indicator
+    const indicator = overlay.querySelector('#split-remaining');
+    if (totalAmount > 0) {
+      const actualSum = Array.from(inputs).reduce((s, i) => s + (parseFloat(i.value) || 0), 0);
+      const diff = Math.round((totalAmount - actualSum) * 100) / 100;
+      if (Math.abs(diff) < 0.02) {
+        indicator.innerHTML = '<span class="split-ok">✅ Valores conferem!</span>';
+      } else if (diff > 0) {
+        indicator.innerHTML = `<span class="split-warn">⚠️ Faltam ${formatCurrency(diff)}</span>`;
+      } else {
+        indicator.innerHTML = `<span class="split-error">❌ Excedeu ${formatCurrency(Math.abs(diff))}</span>`;
+      }
+    }
+  }
+
+  overlay.querySelectorAll('.split-amount').forEach(input => {
+    input.addEventListener('input', () => {
+      // Clear auto-filled inputs when user types in a different one
+      const inputs = overlay.querySelectorAll('.split-amount');
+      inputs.forEach(other => {
+        if (other !== input && other !== document.activeElement) {
+          // Don't clear if user explicitly set it
+        }
+      });
+      // Find the other input that is NOT being edited and auto-fill it
+      const totalAmount = parseFloat(overlay.querySelector('#exp-amount').value) || 0;
+      const myVal = parseFloat(input.value) || 0;
+      inputs.forEach(other => {
+        if (other !== input) {
+          const remaining = Math.round((totalAmount - myVal) * 100) / 100;
+          other.value = remaining >= 0 ? remaining.toFixed(2) : '0.00';
+        }
+      });
+      updateSplitRemaining();
+    });
+  });
+
+  // Also update splits when total amount changes
+  overlay.querySelector('#exp-amount').addEventListener('input', updateSplitRemaining);
+
   overlay.querySelectorAll('.split-toggle button').forEach(btn => {
     btn.addEventListener('click', () => {
       overlay.querySelectorAll('.split-toggle button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       splitType = btn.dataset.split;
       overlay.querySelector('#custom-splits').style.display = splitType === 'custom' ? 'block' : 'none';
+      if (splitType === 'custom') updateSplitRemaining();
     });
   });
 
