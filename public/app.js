@@ -1,47 +1,48 @@
 // ===== SplitEasy - App =====
 
 const API = {
-    async request(url, options = {}) {
-        const res = await fetch(url, {
-            ...options,
-            headers: { 'Content-Type': 'application/json', ...options.headers },
-            body: options.body ? JSON.stringify(options.body) : undefined,
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
-        return data;
-    },
-    // Auth
-    register: (body) => API.request('/api/register', { method: 'POST', body }),
-    login: (body) => API.request('/api/login', { method: 'POST', body }),
-    logout: () => API.request('/api/logout', { method: 'POST' }),
-    me: () => API.request('/api/me'),
-    searchUsers: (q) => API.request(`/api/users/search?q=${encodeURIComponent(q)}`),
-    // Groups
-    getGroups: () => API.request('/api/groups'),
-    createGroup: (body) => API.request('/api/groups', { method: 'POST', body }),
-    getGroup: (id) => API.request(`/api/groups/${id}`),
-    addMember: (id, body) => API.request(`/api/groups/${id}/members`, { method: 'POST', body }),
-    // Expenses
-    getExpenses: (id) => API.request(`/api/groups/${id}/expenses`),
-    addExpense: (id, body) => API.request(`/api/groups/${id}/expenses`, { method: 'POST', body }),
-    deleteExpense: (id) => API.request(`/api/expenses/${id}`, { method: 'DELETE' }),
-    // Balances
-    getBalances: (id) => API.request(`/api/groups/${id}/balances`),
-    settle: (id, body) => API.request(`/api/groups/${id}/settle`, { method: 'POST', body }),
-    getSettlements: (id) => API.request(`/api/groups/${id}/settlements`),
+  async request(url, options = {}) {
+    const res = await fetch(url, {
+      ...options,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
+    return data;
+  },
+  // Auth
+  register: (body) => API.request('/api/register', { method: 'POST', body }),
+  login: (body) => API.request('/api/login', { method: 'POST', body }),
+  logout: () => API.request('/api/logout', { method: 'POST' }),
+  me: () => API.request('/api/me'),
+  searchUsers: (q) => API.request(`/api/users/search?q=${encodeURIComponent(q)}`),
+  // Groups
+  getGroups: () => API.request('/api/groups'),
+  createGroup: (body) => API.request('/api/groups', { method: 'POST', body }),
+  getGroup: (id) => API.request(`/api/groups/${id}`),
+  addMember: (id, body) => API.request(`/api/groups/${id}/members`, { method: 'POST', body }),
+  // Expenses
+  getExpenses: (id) => API.request(`/api/groups/${id}/expenses`),
+  addExpense: (id, body) => API.request(`/api/groups/${id}/expenses`, { method: 'POST', body }),
+  deleteExpense: (id) => API.request(`/api/expenses/${id}`, { method: 'DELETE' }),
+  // Balances
+  getBalances: (id) => API.request(`/api/groups/${id}/balances`),
+  settle: (id, body) => API.request(`/api/groups/${id}/settle`, { method: 'POST', body }),
+  getSettlements: (id) => API.request(`/api/groups/${id}/settlements`),
 };
 
 // ===== STATE =====
 const state = {
-    user: null,
-    groups: [],
-    currentGroup: null,
-    currentGroupExpenses: [],
-    currentGroupBalances: null,
-    currentGroupSettlements: [],
-    activeTab: 'expenses',
-    pollingTimer: null,
+  user: null,
+  groups: [],
+  currentGroup: null,
+  currentGroupExpenses: [],
+  currentGroupBalances: null,
+  currentGroupSettlements: [],
+  activeTab: 'expenses',
+  pollingTimer: null,
 };
 
 // ===== UTILS =====
@@ -49,80 +50,80 @@ function $(sel) { return document.querySelector(sel); }
 function $$(sel) { return document.querySelectorAll(sel); }
 
 function formatCurrency(val) {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 }
 
 function formatDate(dateStr) {
-    const d = new Date(dateStr + 'T12:00:00');
-    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
 }
 
 function getInitials(name) {
-    return name.slice(0, 2).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
 }
 
 function getExpenseEmoji(desc) {
-    const d = desc.toLowerCase();
-    if (d.includes('comida') || d.includes('almoço') || d.includes('jantar') || d.includes('restaurante') || d.includes('lanche')) return '🍽️';
-    if (d.includes('uber') || d.includes('taxi') || d.includes('transporte') || d.includes('gasolina') || d.includes('combustível')) return '🚗';
-    if (d.includes('mercado') || d.includes('supermercado') || d.includes('compras')) return '🛒';
-    if (d.includes('bar') || d.includes('cerveja') || d.includes('bebida') || d.includes('drink')) return '🍺';
-    if (d.includes('cinema') || d.includes('filme') || d.includes('show') || d.includes('ingresso')) return '🎬';
-    if (d.includes('hotel') || d.includes('hospedagem') || d.includes('airbnb')) return '🏨';
-    if (d.includes('viagem') || d.includes('passagem') || d.includes('voo') || d.includes('avião')) return '✈️';
-    if (d.includes('aluguel') || d.includes('moradia') || d.includes('casa')) return '🏠';
-    if (d.includes('internet') || d.includes('wifi') || d.includes('celular') || d.includes('telefone')) return '📱';
-    if (d.includes('luz') || d.includes('energia') || d.includes('água') || d.includes('gás') || d.includes('conta')) return '💡';
-    if (d.includes('farmácia') || d.includes('remédio') || d.includes('saúde') || d.includes('médico')) return '💊';
-    if (d.includes('roupa') || d.includes('shopping') || d.includes('sapato')) return '👕';
-    if (d.includes('presente') || d.includes('gift')) return '🎁';
-    if (d.includes('café') || d.includes('coffee')) return '☕';
-    if (d.includes('pizza')) return '🍕';
-    return '💳';
+  const d = desc.toLowerCase();
+  if (d.includes('comida') || d.includes('almoço') || d.includes('jantar') || d.includes('restaurante') || d.includes('lanche')) return '🍽️';
+  if (d.includes('uber') || d.includes('taxi') || d.includes('transporte') || d.includes('gasolina') || d.includes('combustível')) return '🚗';
+  if (d.includes('mercado') || d.includes('supermercado') || d.includes('compras')) return '🛒';
+  if (d.includes('bar') || d.includes('cerveja') || d.includes('bebida') || d.includes('drink')) return '🍺';
+  if (d.includes('cinema') || d.includes('filme') || d.includes('show') || d.includes('ingresso')) return '🎬';
+  if (d.includes('hotel') || d.includes('hospedagem') || d.includes('airbnb')) return '🏨';
+  if (d.includes('viagem') || d.includes('passagem') || d.includes('voo') || d.includes('avião')) return '✈️';
+  if (d.includes('aluguel') || d.includes('moradia') || d.includes('casa')) return '🏠';
+  if (d.includes('internet') || d.includes('wifi') || d.includes('celular') || d.includes('telefone')) return '📱';
+  if (d.includes('luz') || d.includes('energia') || d.includes('água') || d.includes('gás') || d.includes('conta')) return '💡';
+  if (d.includes('farmácia') || d.includes('remédio') || d.includes('saúde') || d.includes('médico')) return '💊';
+  if (d.includes('roupa') || d.includes('shopping') || d.includes('sapato')) return '👕';
+  if (d.includes('presente') || d.includes('gift')) return '🎁';
+  if (d.includes('café') || d.includes('coffee')) return '☕';
+  if (d.includes('pizza')) return '🍕';
+  return '💳';
 }
 
 function showToast(message, type = 'success') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateY(10px)';
-        toast.style.transition = 'all 0.3s ease';
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(10px)';
+    toast.style.transition = 'all 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
 
 // ===== ROUTER =====
 function navigate(hash) {
-    window.location.hash = hash;
+  window.location.hash = hash;
 }
 
 function getRoute() {
-    const hash = window.location.hash.slice(1) || '';
-    if (hash.startsWith('group/')) {
-        return { page: 'group', id: hash.split('/')[1] };
-    }
-    return { page: hash || 'dashboard' };
+  const hash = window.location.hash.slice(1) || '';
+  if (hash.startsWith('group/')) {
+    return { page: 'group', id: hash.split('/')[1] };
+  }
+  return { page: hash || 'dashboard' };
 }
 
 // ===== RENDER ENGINE =====
 const app = document.getElementById('app');
 
 function render(html) {
-    app.innerHTML = html;
+  app.innerHTML = html;
 }
 
 // ===== VIEWS =====
 
 function renderLoading() {
-    render(`<div class="loading-page"><div class="spinner"></div></div>`);
+  render(`<div class="loading-page"><div class="spinner"></div></div>`);
 }
 
 function renderLogin() {
-    render(`
+  render(`
     <div class="auth-container">
       <div class="auth-brand">
         <span class="logo">💸</span>
@@ -150,29 +151,29 @@ function renderLogin() {
     </div>
   `);
 
-    $('#login-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = $('#login-btn');
-        btn.disabled = true;
-        btn.textContent = 'Entrando...';
-        try {
-            const user = await API.login({
-                username: $('#login-username').value.trim(),
-                password: $('#login-password').value,
-            });
-            state.user = user;
-            showToast(`Bem-vindo, ${user.username}! 👋`);
-            navigate('dashboard');
-        } catch (err) {
-            $('#auth-error').innerHTML = `<div class="form-error">${err.message}</div>`;
-            btn.disabled = false;
-            btn.textContent = 'Entrar';
-        }
-    });
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#login-btn');
+    btn.disabled = true;
+    btn.textContent = 'Entrando...';
+    try {
+      const user = await API.login({
+        username: $('#login-username').value.trim(),
+        password: $('#login-password').value,
+      });
+      state.user = user;
+      showToast(`Bem-vindo, ${user.username}! 👋`);
+      navigate('dashboard');
+    } catch (err) {
+      $('#auth-error').innerHTML = `<div class="form-error">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+    }
+  });
 }
 
 function renderRegister() {
-    render(`
+  render(`
     <div class="auth-container">
       <div class="auth-brand">
         <span class="logo">💸</span>
@@ -204,38 +205,38 @@ function renderRegister() {
     </div>
   `);
 
-    $('#register-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = $('#reg-btn');
-        btn.disabled = true;
-        btn.textContent = 'Criando...';
-        try {
-            const user = await API.register({
-                username: $('#reg-username').value.trim(),
-                email: $('#reg-email').value.trim(),
-                password: $('#reg-password').value,
-            });
-            state.user = user;
-            showToast('Conta criada com sucesso! 🎉');
-            navigate('dashboard');
-        } catch (err) {
-            $('#auth-error').innerHTML = `<div class="form-error">${err.message}</div>`;
-            btn.disabled = false;
-            btn.textContent = 'Criar Conta';
-        }
-    });
+  $('#register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#reg-btn');
+    btn.disabled = true;
+    btn.textContent = 'Criando...';
+    try {
+      const user = await API.register({
+        username: $('#reg-username').value.trim(),
+        email: $('#reg-email').value.trim(),
+        password: $('#reg-password').value,
+      });
+      state.user = user;
+      showToast('Conta criada com sucesso! 🎉');
+      navigate('dashboard');
+    } catch (err) {
+      $('#auth-error').innerHTML = `<div class="form-error">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Criar Conta';
+    }
+  });
 }
 
 async function renderDashboard() {
-    renderLoading();
-    try {
-        state.groups = await API.getGroups();
-    } catch { state.groups = []; }
+  renderLoading();
+  try {
+    state.groups = await API.getGroups();
+  } catch { state.groups = []; }
 
-    let totalOwed = 0;
-    let totalOwe = 0;
+  let totalOwed = 0;
+  let totalOwe = 0;
 
-    render(`
+  render(`
     <div class="app-layout">
       ${renderHeader()}
       <main class="app-content">
@@ -293,37 +294,37 @@ async function renderDashboard() {
     </div>
   `);
 
-    // Event listeners
-    document.querySelectorAll('.group-card').forEach(card => {
-        card.addEventListener('click', () => navigate('group/' + card.dataset.id));
-    });
+  // Event listeners
+  document.querySelectorAll('.group-card').forEach(card => {
+    card.addEventListener('click', () => navigate('group/' + card.dataset.id));
+  });
 
-    const createBtn = $('#create-group-btn') || $('#create-group-btn-empty');
-    if (createBtn) createBtn.addEventListener('click', showCreateGroupModal);
+  const createBtn = $('#create-group-btn') || $('#create-group-btn-empty');
+  if (createBtn) createBtn.addEventListener('click', showCreateGroupModal);
 
-    const createBtnEmpty = $('#create-group-btn-empty');
-    if (createBtnEmpty) createBtnEmpty.addEventListener('click', showCreateGroupModal);
+  const createBtnEmpty = $('#create-group-btn-empty');
+  if (createBtnEmpty) createBtnEmpty.addEventListener('click', showCreateGroupModal);
 }
 
 async function renderGroup() {
-    const route = getRoute();
-    renderLoading();
+  const route = getRoute();
+  renderLoading();
 
-    try {
-        state.currentGroup = await API.getGroup(route.id);
-        state.currentGroupExpenses = await API.getExpenses(route.id);
-        state.currentGroupBalances = await API.getBalances(route.id);
-        state.currentGroupSettlements = await API.getSettlements(route.id);
-    } catch (err) {
-        showToast(err.message, 'error');
-        navigate('dashboard');
-        return;
-    }
+  try {
+    state.currentGroup = await API.getGroup(route.id);
+    state.currentGroupExpenses = await API.getExpenses(route.id);
+    state.currentGroupBalances = await API.getBalances(route.id);
+    state.currentGroupSettlements = await API.getSettlements(route.id);
+  } catch (err) {
+    showToast(err.message, 'error');
+    navigate('dashboard');
+    return;
+  }
 
-    const g = state.currentGroup;
-    const tab = state.activeTab;
+  const g = state.currentGroup;
+  const tab = state.activeTab;
 
-    render(`
+  render(`
     <div class="app-layout">
       ${renderHeader()}
       <main class="app-content">
@@ -361,54 +362,54 @@ async function renderGroup() {
     </div>
   `);
 
-    // Event listeners
-    $('#back-btn').addEventListener('click', () => {
-        state.activeTab = 'expenses';
-        navigate('dashboard');
+  // Event listeners
+  $('#back-btn').addEventListener('click', () => {
+    state.activeTab = 'expenses';
+    navigate('dashboard');
+  });
+
+  $$('.group-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      state.activeTab = tab.dataset.tab;
+      renderGroup();
     });
+  });
 
-    $$('.group-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            state.activeTab = tab.dataset.tab;
-            renderGroup();
-        });
+  $('#add-member-btn').addEventListener('click', showAddMemberModal);
+
+  const addExpBtn = $('#add-expense-btn');
+  if (addExpBtn) addExpBtn.addEventListener('click', showAddExpenseModal);
+
+  $$('.settle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const to = btn.dataset.to;
+      const amount = parseFloat(btn.dataset.amount);
+      showSettleModal(to, amount);
     });
+  });
 
-    $('#add-member-btn').addEventListener('click', showAddMemberModal);
-
-    const addExpBtn = $('#add-expense-btn');
-    if (addExpBtn) addExpBtn.addEventListener('click', showAddExpenseModal);
-
-    $$('.settle-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const to = btn.dataset.to;
-            const amount = parseFloat(btn.dataset.amount);
-            showSettleModal(to, amount);
-        });
+  $$('.expense-delete .btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm('Excluir esta despesa?')) {
+        try {
+          await API.deleteExpense(btn.dataset.id);
+          showToast('Despesa excluída');
+          renderGroup();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
     });
+  });
 
-    $$('.expense-delete .btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm('Excluir esta despesa?')) {
-                try {
-                    await API.deleteExpense(btn.dataset.id);
-                    showToast('Despesa excluída');
-                    renderGroup();
-                } catch (err) {
-                    showToast(err.message, 'error');
-                }
-            }
-        });
-    });
-
-    // Start polling
-    startPolling();
+  // Start polling
+  startPolling();
 }
 
 function renderExpensesTab() {
-    const expenses = state.currentGroupExpenses;
-    return `
+  const expenses = state.currentGroupExpenses;
+  return `
     <div class="actions-bar">
       <button class="btn btn-primary btn-sm" id="add-expense-btn">＋ Nova Despesa</button>
     </div>
@@ -442,14 +443,14 @@ function renderExpensesTab() {
 }
 
 function renderBalancesTab() {
-    const bal = state.currentGroupBalances;
-    if (!bal) return '<div class="spinner"></div>';
+  const bal = state.currentGroupBalances;
+  if (!bal) return '<div class="spinner"></div>';
 
-    const debts = bal.debts;
-    const myDebts = debts.filter(d => d.from.id === state.user.id);
-    const owedToMe = debts.filter(d => d.to.id === state.user.id);
+  const debts = bal.debts;
+  const myDebts = debts.filter(d => d.from.id === state.user.id);
+  const owedToMe = debts.filter(d => d.to.id === state.user.id);
 
-    return `
+  return `
     ${debts.length === 0 ? `
       <div class="all-settled">
         <div class="icon">🎉</div>
@@ -459,8 +460,8 @@ function renderBalancesTab() {
     ` : `
       <div class="balance-cards">
         ${debts.map((d, i) => {
-        const isMe = d.from.id === state.user.id;
-        return `
+    const isMe = d.from.id === state.user.id;
+    return `
             <div class="balance-card" style="animation-delay:${i * 0.06}s">
               <div class="balance-arrow">
                 <div class="avatar" style="background:${d.from.avatar_color}">${getInitials(d.from.username)}</div>
@@ -477,15 +478,15 @@ function renderBalancesTab() {
               ${isMe ? `<button class="btn btn-primary settle-btn" data-to="${d.to.id}" data-amount="${d.amount}">Pagar</button>` : ''}
             </div>
           `;
-    }).join('')}
+  }).join('')}
       </div>
     `}
   `;
 }
 
 function renderSettlementsTab() {
-    const settlements = state.currentGroupSettlements;
-    return `
+  const settlements = state.currentGroupSettlements;
+  return `
     ${settlements.length === 0 ? `
       <div class="empty-state">
         <div class="icon">📋</div>
@@ -510,7 +511,7 @@ function renderSettlementsTab() {
 }
 
 function renderHeader() {
-    return `
+  return `
     <header class="app-header">
       <div class="header-left">
         <div class="header-logo" id="header-logo">
@@ -531,9 +532,9 @@ function renderHeader() {
 
 // ===== MODALS =====
 function showModal(title, bodyHtml, footerHtml = '') {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
     <div class="modal">
       <div class="modal-header">
         <h2>${title}</h2>
@@ -543,17 +544,17 @@ function showModal(title, bodyHtml, footerHtml = '') {
       ${footerHtml ? `<div class="modal-footer">${footerHtml}</div>` : ''}
     </div>
   `;
-    document.body.appendChild(overlay);
+  document.body.appendChild(overlay);
 
-    overlay.querySelector('.modal-close').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('.modal-close').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 
-    return overlay;
+  return overlay;
 }
 
 function showCreateGroupModal() {
-    const emojis = ['💰', '🏠', '✈️', '🍽️', '🎉', '🛒', '🎮', '⚽', '🏖️', '💼', '🎓', '❤️'];
-    const body = `
+  const emojis = ['💰', '🏠', '✈️', '🍽️', '🎉', '🛒', '🎮', '⚽', '🏖️', '💼', '🎓', '❤️'];
+  const body = `
     <form id="create-group-form">
       <div class="form-group">
         <label>Nome do Grupo</label>
@@ -573,40 +574,40 @@ function showCreateGroupModal() {
     </form>
   `;
 
-    const overlay = showModal('Novo Grupo', body);
+  const overlay = showModal('Novo Grupo', body);
 
-    overlay.querySelectorAll('.emoji-pick').forEach(btn => {
-        btn.addEventListener('click', () => {
-            overlay.querySelectorAll('.emoji-pick').forEach(b => {
-                b.style.borderColor = '';
-                b.style.background = '';
-                b.classList.remove('active');
-            });
-            btn.style.borderColor = 'var(--accent-primary)';
-            btn.style.background = 'var(--accent-primary-glow)';
-            btn.classList.add('active');
-            overlay.querySelector('#group-emoji').value = btn.dataset.emoji;
-        });
+  overlay.querySelectorAll('.emoji-pick').forEach(btn => {
+    btn.addEventListener('click', () => {
+      overlay.querySelectorAll('.emoji-pick').forEach(b => {
+        b.style.borderColor = '';
+        b.style.background = '';
+        b.classList.remove('active');
+      });
+      btn.style.borderColor = 'var(--accent-primary)';
+      btn.style.background = 'var(--accent-primary-glow)';
+      btn.classList.add('active');
+      overlay.querySelector('#group-emoji').value = btn.dataset.emoji;
     });
+  });
 
-    overlay.querySelector('#create-group-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        try {
-            await API.createGroup({
-                name: overlay.querySelector('#group-name').value.trim(),
-                emoji: overlay.querySelector('#group-emoji').value,
-            });
-            overlay.remove();
-            showToast('Grupo criado! 🎉');
-            renderDashboard();
-        } catch (err) {
-            showToast(err.message, 'error');
-        }
-    });
+  overlay.querySelector('#create-group-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await API.createGroup({
+        name: overlay.querySelector('#group-name').value.trim(),
+        emoji: overlay.querySelector('#group-emoji').value,
+      });
+      overlay.remove();
+      showToast('Grupo criado! 🎉');
+      renderDashboard();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 function showAddMemberModal() {
-    const body = `
+  const body = `
     <form id="add-member-form">
       <div class="form-group">
         <label>Username do membro</label>
@@ -617,58 +618,58 @@ function showAddMemberModal() {
     </form>
   `;
 
-    const overlay = showModal('Adicionar Membro', body);
-    let searchTimeout;
+  const overlay = showModal('Adicionar Membro', body);
+  let searchTimeout;
 
-    overlay.querySelector('#member-username').addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        const q = e.target.value.trim();
-        if (q.length < 2) {
-            overlay.querySelector('#user-search-results').innerHTML = '';
-            return;
-        }
-        searchTimeout = setTimeout(async () => {
-            try {
-                const users = await API.searchUsers(q);
-                const existingIds = state.currentGroup.members.map(m => m.id);
-                const filtered = users.filter(u => !existingIds.includes(u.id));
-                overlay.querySelector('#user-search-results').innerHTML = filtered.map(u => `
+  overlay.querySelector('#member-username').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    const q = e.target.value.trim();
+    if (q.length < 2) {
+      overlay.querySelector('#user-search-results').innerHTML = '';
+      return;
+    }
+    searchTimeout = setTimeout(async () => {
+      try {
+        const users = await API.searchUsers(q);
+        const existingIds = state.currentGroup.members.map(m => m.id);
+        const filtered = users.filter(u => !existingIds.includes(u.id));
+        overlay.querySelector('#user-search-results').innerHTML = filtered.map(u => `
           <div class="member-chip" style="cursor:pointer;margin-bottom:4px" data-username="${u.username}">
             <div class="avatar" style="background:${u.avatar_color}">${getInitials(u.username)}</div>
             ${escapeHtml(u.username)}
           </div>
         `).join('') || '<p style="font-size:0.8rem;color:var(--text-muted)">Nenhum usuário encontrado</p>';
 
-                overlay.querySelectorAll('#user-search-results .member-chip').forEach(chip => {
-                    chip.addEventListener('click', () => {
-                        overlay.querySelector('#member-username').value = chip.dataset.username;
-                        overlay.querySelector('#user-search-results').innerHTML = '';
-                    });
-                });
-            } catch { }
-        }, 300);
-    });
+        overlay.querySelectorAll('#user-search-results .member-chip').forEach(chip => {
+          chip.addEventListener('click', () => {
+            overlay.querySelector('#member-username').value = chip.dataset.username;
+            overlay.querySelector('#user-search-results').innerHTML = '';
+          });
+        });
+      } catch { }
+    }, 300);
+  });
 
-    overlay.querySelector('#add-member-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        try {
-            await API.addMember(state.currentGroup.id, {
-                username: overlay.querySelector('#member-username').value.trim(),
-            });
-            overlay.remove();
-            showToast('Membro adicionado! 👤');
-            renderGroup();
-        } catch (err) {
-            showToast(err.message, 'error');
-        }
-    });
+  overlay.querySelector('#add-member-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await API.addMember(state.currentGroup.id, {
+        username: overlay.querySelector('#member-username').value.trim(),
+      });
+      overlay.remove();
+      showToast('Membro adicionado! 👤');
+      renderGroup();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 function showAddExpenseModal() {
-    const members = state.currentGroup.members;
-    const today = new Date().toISOString().split('T')[0];
+  const members = state.currentGroup.members;
+  const today = new Date().toISOString().split('T')[0];
 
-    const body = `
+  const body = `
     <form id="add-expense-form">
       <div class="form-group">
         <label>Descrição</label>
@@ -705,59 +706,59 @@ function showAddExpenseModal() {
     </form>
   `;
 
-    const overlay = showModal('Nova Despesa', body);
-    let splitType = 'equal';
+  const overlay = showModal('Nova Despesa', body);
+  let splitType = 'equal';
 
-    overlay.querySelectorAll('.split-toggle button').forEach(btn => {
-        btn.addEventListener('click', () => {
-            overlay.querySelectorAll('.split-toggle button').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            splitType = btn.dataset.split;
-            overlay.querySelector('#custom-splits').style.display = splitType === 'custom' ? 'block' : 'none';
-        });
+  overlay.querySelectorAll('.split-toggle button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      overlay.querySelectorAll('.split-toggle button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      splitType = btn.dataset.split;
+      overlay.querySelector('#custom-splits').style.display = splitType === 'custom' ? 'block' : 'none';
     });
+  });
 
-    overlay.querySelector('#add-expense-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const amount = parseFloat(overlay.querySelector('#exp-amount').value);
-        let splits = null;
+  overlay.querySelector('#add-expense-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(overlay.querySelector('#exp-amount').value);
+    let splits = null;
 
-        if (splitType === 'custom') {
-            splits = [];
-            overlay.querySelectorAll('.split-amount').forEach(input => {
-                const val = parseFloat(input.value) || 0;
-                if (val > 0) {
-                    splits.push({ user_id: input.dataset.userId, amount: val });
-                }
-            });
-            const total = splits.reduce((s, sp) => s + sp.amount, 0);
-            if (Math.abs(total - amount) > 0.02) {
-                showToast(`A soma das divisões (${formatCurrency(total)}) não corresponde ao valor total (${formatCurrency(amount)})`, 'error');
-                return;
-            }
+    if (splitType === 'custom') {
+      splits = [];
+      overlay.querySelectorAll('.split-amount').forEach(input => {
+        const val = parseFloat(input.value) || 0;
+        if (val > 0) {
+          splits.push({ user_id: input.dataset.userId, amount: val });
         }
+      });
+      const total = splits.reduce((s, sp) => s + sp.amount, 0);
+      if (Math.abs(total - amount) > 0.02) {
+        showToast(`A soma das divisões (${formatCurrency(total)}) não corresponde ao valor total (${formatCurrency(amount)})`, 'error');
+        return;
+      }
+    }
 
-        try {
-            await API.addExpense(state.currentGroup.id, {
-                description: overlay.querySelector('#exp-desc').value.trim(),
-                amount,
-                date: overlay.querySelector('#exp-date').value,
-                splits,
-            });
-            overlay.remove();
-            showToast('Despesa adicionada! 💰');
-            renderGroup();
-        } catch (err) {
-            showToast(err.message, 'error');
-        }
-    });
+    try {
+      await API.addExpense(state.currentGroup.id, {
+        description: overlay.querySelector('#exp-desc').value.trim(),
+        amount,
+        date: overlay.querySelector('#exp-date').value,
+        splits,
+      });
+      overlay.remove();
+      showToast('Despesa adicionada! 💰');
+      renderGroup();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 function showSettleModal(toUserId, amount) {
-    const toUser = state.currentGroup.members.find(m => m.id === toUserId);
-    if (!toUser) return;
+  const toUser = state.currentGroup.members.find(m => m.id === toUserId);
+  if (!toUser) return;
 
-    const body = `
+  const body = `
     <form id="settle-form">
       <div style="text-align:center;margin-bottom:var(--space-lg)">
         <div style="display:flex;align-items:center;justify-content:center;gap:var(--space-md);margin-bottom:var(--space-md)">
@@ -775,134 +776,134 @@ function showSettleModal(toUserId, amount) {
     </form>
   `;
 
-    const overlay = showModal('Acertar Conta', body);
+  const overlay = showModal('Acertar Conta', body);
 
-    overlay.querySelector('#settle-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        try {
-            await API.settle(state.currentGroup.id, {
-                to_user: toUserId,
-                amount: parseFloat(overlay.querySelector('#settle-amount').value),
-            });
-            overlay.remove();
-            showToast('Pagamento registrado! ✅');
-            renderGroup();
-        } catch (err) {
-            showToast(err.message, 'error');
-        }
-    });
+  overlay.querySelector('#settle-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await API.settle(state.currentGroup.id, {
+        to_user: toUserId,
+        amount: parseFloat(overlay.querySelector('#settle-amount').value),
+      });
+      overlay.remove();
+      showToast('Pagamento registrado! ✅');
+      renderGroup();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 // ===== POLLING =====
 function startPolling() {
-    stopPolling();
-    state.pollingTimer = setInterval(async () => {
-        if (!state.currentGroup) return;
-        try {
-            const [expenses, balances, settlements] = await Promise.all([
-                API.getExpenses(state.currentGroup.id),
-                API.getBalances(state.currentGroup.id),
-                API.getSettlements(state.currentGroup.id),
-            ]);
+  stopPolling();
+  state.pollingTimer = setInterval(async () => {
+    if (!state.currentGroup) return;
+    try {
+      const [expenses, balances, settlements] = await Promise.all([
+        API.getExpenses(state.currentGroup.id),
+        API.getBalances(state.currentGroup.id),
+        API.getSettlements(state.currentGroup.id),
+      ]);
 
-            const changed =
-                JSON.stringify(expenses.map(e => e.id)) !== JSON.stringify(state.currentGroupExpenses.map(e => e.id)) ||
-                JSON.stringify(settlements.map(s => s.id)) !== JSON.stringify(state.currentGroupSettlements.map(s => s.id));
+      const changed =
+        JSON.stringify(expenses.map(e => e.id)) !== JSON.stringify(state.currentGroupExpenses.map(e => e.id)) ||
+        JSON.stringify(settlements.map(s => s.id)) !== JSON.stringify(state.currentGroupSettlements.map(s => s.id));
 
-            state.currentGroupExpenses = expenses;
-            state.currentGroupBalances = balances;
-            state.currentGroupSettlements = settlements;
+      state.currentGroupExpenses = expenses;
+      state.currentGroupBalances = balances;
+      state.currentGroupSettlements = settlements;
 
-            if (changed) {
-                const tabContent = document.getElementById('tab-content');
-                if (tabContent) {
-                    if (state.activeTab === 'expenses') tabContent.innerHTML = renderExpensesTab();
-                    if (state.activeTab === 'balances') tabContent.innerHTML = renderBalancesTab();
-                    if (state.activeTab === 'settlements') tabContent.innerHTML = renderSettlementsTab();
-                    rebindTabEvents();
-                }
-            }
-        } catch { }
-    }, 10000);
+      if (changed) {
+        const tabContent = document.getElementById('tab-content');
+        if (tabContent) {
+          if (state.activeTab === 'expenses') tabContent.innerHTML = renderExpensesTab();
+          if (state.activeTab === 'balances') tabContent.innerHTML = renderBalancesTab();
+          if (state.activeTab === 'settlements') tabContent.innerHTML = renderSettlementsTab();
+          rebindTabEvents();
+        }
+      }
+    } catch { }
+  }, 10000);
 }
 
 function stopPolling() {
-    if (state.pollingTimer) {
-        clearInterval(state.pollingTimer);
-        state.pollingTimer = null;
-    }
+  if (state.pollingTimer) {
+    clearInterval(state.pollingTimer);
+    state.pollingTimer = null;
+  }
 }
 
 function rebindTabEvents() {
-    const addExpBtn = $('#add-expense-btn');
-    if (addExpBtn) addExpBtn.addEventListener('click', showAddExpenseModal);
+  const addExpBtn = $('#add-expense-btn');
+  if (addExpBtn) addExpBtn.addEventListener('click', showAddExpenseModal);
 
-    $$('.settle-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            showSettleModal(btn.dataset.to, parseFloat(btn.dataset.amount));
-        });
+  $$('.settle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showSettleModal(btn.dataset.to, parseFloat(btn.dataset.amount));
     });
+  });
 
-    $$('.expense-delete .btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm('Excluir esta despesa?')) {
-                try {
-                    await API.deleteExpense(btn.dataset.id);
-                    showToast('Despesa excluída');
-                    renderGroup();
-                } catch (err) {
-                    showToast(err.message, 'error');
-                }
-            }
-        });
+  $$('.expense-delete .btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm('Excluir esta despesa?')) {
+        try {
+          await API.deleteExpense(btn.dataset.id);
+          showToast('Despesa excluída');
+          renderGroup();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
     });
+  });
 }
 
 // ===== HELPERS =====
 function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 // ===== ROUTER HANDLER =====
 async function handleRoute() {
-    stopPolling();
-    const route = getRoute();
+  stopPolling();
+  const route = getRoute();
 
-    if (!state.user) {
-        try {
-            state.user = await API.me();
-        } catch {
-            if (route.page === 'register') return renderRegister();
-            return renderLogin();
-        }
+  if (!state.user) {
+    try {
+      state.user = await API.me();
+    } catch {
+      if (route.page === 'register') return renderRegister();
+      return renderLogin();
     }
+  }
 
-    switch (route.page) {
-        case 'login': renderLogin(); break;
-        case 'register': renderRegister(); break;
-        case 'group': renderGroup(); break;
-        default: renderDashboard(); break;
-    }
+  switch (route.page) {
+    case 'login': renderLogin(); break;
+    case 'register': renderRegister(); break;
+    case 'group': renderGroup(); break;
+    default: renderDashboard(); break;
+  }
 }
 
 // ===== EVENT DELEGATION FOR HEADER =====
 document.addEventListener('click', (e) => {
-    if (e.target.id === 'logout-btn' || e.target.closest('#logout-btn')) {
-        API.logout().then(() => {
-            state.user = null;
-            state.groups = [];
-            stopPolling();
-            navigate('login');
-            showToast('Até logo! 👋', 'info');
-        });
-    }
-    if (e.target.id === 'header-logo' || e.target.closest('#header-logo')) {
-        state.activeTab = 'expenses';
-        navigate('dashboard');
-    }
+  if (e.target.id === 'logout-btn' || e.target.closest('#logout-btn')) {
+    API.logout().then(() => {
+      state.user = null;
+      state.groups = [];
+      stopPolling();
+      navigate('login');
+      showToast('Até logo! 👋', 'info');
+    });
+  }
+  if (e.target.id === 'header-logo' || e.target.closest('#header-logo')) {
+    state.activeTab = 'expenses';
+    navigate('dashboard');
+  }
 });
 
 // ===== INIT =====
