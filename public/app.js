@@ -47,6 +47,7 @@ const state = {
   currentGroupBalances: null,
   currentGroupSettlements: [],
   activeTab: 'expenses',
+  expenseMonthFilter: 'all',
   pollingTimer: null,
 };
 
@@ -441,6 +442,18 @@ function bindTabListeners() {
   const addExpBtn = $('#add-expense-btn');
   if (addExpBtn) addExpBtn.addEventListener('click', showAddExpenseModal);
 
+  // Month filter pills
+  $$('.month-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      state.expenseMonthFilter = pill.dataset.month;
+      const container = $('#tab-content');
+      if (container) {
+        container.innerHTML = renderExpensesTab();
+        bindTabListeners();
+      }
+    });
+  });
+
   $$('.settle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const to = btn.dataset.to;
@@ -480,8 +493,44 @@ function bindTabListeners() {
   });
 }
 
+function getMonthLabel(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  return months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function getMonthKey(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function renderExpensesTab() {
   const expenses = state.currentGroupExpenses;
+
+  // Get unique months from expenses
+  const monthsSet = new Map();
+  expenses.forEach(e => {
+    const key = getMonthKey(e.date);
+    if (!monthsSet.has(key)) monthsSet.set(key, getMonthLabel(e.date));
+  });
+  const months = Array.from(monthsSet.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+
+  // Filter expenses
+  const filtered = state.expenseMonthFilter === 'all'
+    ? expenses
+    : expenses.filter(e => getMonthKey(e.date) === state.expenseMonthFilter);
+
+  // Group by month
+  const grouped = new Map();
+  filtered.forEach(e => {
+    const label = getMonthLabel(e.date);
+    if (!grouped.has(label)) grouped.set(label, []);
+    grouped.get(label).push(e);
+  });
+
+  // Calc month total
+  const monthTotal = filtered.reduce((s, e) => s + e.amount, 0);
+
   return `
     <div class="actions-bar">
       <button class="btn btn-primary btn-sm" id="add-expense-btn">＋ Nova Despesa</button>
@@ -493,22 +542,35 @@ function renderExpensesTab() {
         <p>Adicione a primeira despesa do grupo!</p>
       </div>
     ` : `
+      <div class="month-filter">
+        <button class="month-pill ${state.expenseMonthFilter === 'all' ? 'active' : ''}" data-month="all">Todos</button>
+        ${months.map(([key, label]) => `
+          <button class="month-pill ${state.expenseMonthFilter === key ? 'active' : ''}" data-month="${key}">${label.split(' ')[0].substring(0, 3)}</button>
+        `).join('')}
+      </div>
+      <div class="month-summary">
+        <span>${filtered.length} despesa${filtered.length !== 1 ? 's' : ''}</span>
+        <span class="month-total">Total: <strong>${formatCurrency(monthTotal)}</strong></span>
+      </div>
       <div class="expense-list">
-        ${expenses.map((e, i) => `
-          <div class="expense-item" style="animation-delay:${i * 0.04}s">
-            <div class="expense-icon">${getExpenseEmoji(e.description)}</div>
-            <div class="expense-info">
-              <h4>${escapeHtml(e.description)}</h4>
-              <p>Pago por <strong>${escapeHtml(e.paid_by_name)}</strong> • ${formatDate(e.date)}</p>
+        ${Array.from(grouped.entries()).map(([monthLabel, items]) => `
+          ${state.expenseMonthFilter === 'all' ? `<div class="month-divider"><span>${monthLabel}</span></div>` : ''}
+          ${items.map((e, i) => `
+            <div class="expense-item" style="animation-delay:${i * 0.04}s">
+              <div class="expense-icon">${getExpenseEmoji(e.description)}</div>
+              <div class="expense-info">
+                <h4>${escapeHtml(e.description)}</h4>
+                <p>Pago por <strong>${escapeHtml(e.paid_by_name)}</strong> • ${formatDate(e.date)}</p>
+              </div>
+              <div class="expense-amount">
+                <div class="amount">${formatCurrency(e.amount)}</div>
+                <div class="split-info">${e.splits.length} pessoa${e.splits.length !== 1 ? 's' : ''}</div>
+              </div>
+              <div class="expense-delete">
+                <button class="btn btn-ghost btn-sm" data-id="${e.id}" title="Excluir">🗑️</button>
+              </div>
             </div>
-            <div class="expense-amount">
-              <div class="amount">${formatCurrency(e.amount)}</div>
-              <div class="split-info">${e.splits.length} pessoa${e.splits.length !== 1 ? 's' : ''}</div>
-            </div>
-            <div class="expense-delete">
-              <button class="btn btn-ghost btn-sm" data-id="${e.id}" title="Excluir">🗑️</button>
-            </div>
-          </div>
+          `).join('')}
         `).join('')}
       </div>
     `}

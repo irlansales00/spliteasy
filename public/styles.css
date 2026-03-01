@@ -1302,6 +1302,78 @@ a:hover {
   color: var(--accent-danger);
 }
 
+/* ===== MONTH FILTER ===== */
+.month-filter {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: var(--space-sm) 0;
+  margin-bottom: var(--space-sm);
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.month-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.month-pill {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.month-pill:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.month-pill.active {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 12px var(--accent-primary-glow);
+}
+
+.month-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) 0;
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+}
+
+.month-total strong {
+  color: var(--text-primary);
+}
+
+.month-divider {
+  padding: var(--space-sm) 0;
+  margin-top: var(--space-sm);
+}
+
+.month-divider span {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 12px;
+  background: var(--accent-primary-glow);
+  border-radius: var(--radius-full);
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 640px) {
   .app-header {
