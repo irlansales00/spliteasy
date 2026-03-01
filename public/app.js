@@ -330,7 +330,9 @@ async function renderGroup() {
   }
 
   const g = state.currentGroup;
-  const tab = state.activeTab;
+  const bal = state.currentGroupBalances;
+  const debts = bal ? bal.debts : [];
+  const settlements = state.currentGroupSettlements;
 
   render(`
     <div class="app-layout">
@@ -356,16 +358,50 @@ async function renderGroup() {
           <button class="btn btn-ghost btn-sm" id="add-member-btn">＋ Adicionar</button>
         </div>
 
-        <div class="group-tabs">
-          <button class="group-tab ${tab === 'expenses' ? 'active' : ''}" data-tab="expenses">💳 Despesas</button>
-          <button class="group-tab ${tab === 'balances' ? 'active' : ''}" data-tab="balances">⚖️ Saldos</button>
-          <button class="group-tab ${tab === 'settlements' ? 'active' : ''}" data-tab="settlements">✅ Acertos</button>
-        </div>
+        ${debts.length > 0 ? `
+          <div class="balance-summary-card">
+            ${debts.map(d => {
+    const isMe = d.from.id === state.user.id;
+    const isToMe = d.to.id === state.user.id;
+    return `
+                <div class="debt-row ${isMe ? 'debt-mine' : ''}">
+                  <div class="debt-users">
+                    <div class="avatar avatar-sm" style="background:${d.from.avatar_color}">${getInitials(d.from.username)}</div>
+                    <span class="debt-text">
+                      <strong>${escapeHtml(d.from.username)}${isMe ? ' (você)' : ''}</strong>
+                      deve
+                      <strong>${formatCurrency(d.amount)}</strong>
+                      para
+                      <strong>${escapeHtml(d.to.username)}${isToMe ? ' (você)' : ''}</strong>
+                    </span>
+                  </div>
+                  ${isMe ? `<button class="btn btn-primary btn-sm settle-btn" data-to="${d.to.id}" data-amount="${d.amount}">💰 Pagar</button>` : ''}
+                </div>
+              `;
+  }).join('')}
+            ${settlements.length > 0 ? `
+              <details class="settlements-details">
+                <summary>📋 ${settlements.length} acerto${settlements.length !== 1 ? 's' : ''} registrado${settlements.length !== 1 ? 's' : ''}</summary>
+                <div class="settlements-list">
+                  ${settlements.map(s => `
+                    <div class="settlement-mini">
+                      <span>💸 ${escapeHtml(s.from_username)} → ${escapeHtml(s.to_username)}: <strong>${formatCurrency(s.amount)}</strong></span>
+                      <span class="settlement-date">${formatDate(s.date)}</span>
+                      <button class="btn btn-ghost btn-xs settlement-delete-btn" data-id="${s.id}" title="Excluir">✕</button>
+                    </div>
+                  `).join('')}
+                </div>
+              </details>
+            ` : ''}
+          </div>
+        ` : debts.length === 0 && state.currentGroupExpenses.length > 0 ? `
+          <div class="balance-summary-card settled">
+            <span>🎉 Tudo acertado! Não há dívidas pendentes.</span>
+          </div>
+        ` : ''}
 
         <div id="tab-content">
-          ${tab === 'expenses' ? renderExpensesTab() : ''}
-          ${tab === 'balances' ? renderBalancesTab() : ''}
-          ${tab === 'settlements' ? renderSettlementsTab() : ''}
+          ${renderExpensesTab()}
         </div>
       </main>
     </div>
@@ -375,14 +411,6 @@ async function renderGroup() {
   $('#back-btn').addEventListener('click', () => {
     state.activeTab = 'expenses';
     navigate('dashboard');
-  });
-
-  $$('.group-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      if (tab.dataset.tab === state.activeTab) return; // already active
-      state.activeTab = tab.dataset.tab;
-      switchTab();
-    });
   });
 
   $('#add-member-btn').addEventListener('click', showAddMemberModal);
@@ -395,6 +423,29 @@ async function renderGroup() {
         try {
           await API.removeMember(state.currentGroup.id, btn.dataset.userId);
           showToast('Membro removido');
+          renderGroup();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+    });
+  });
+
+  // Settle buttons in header
+  $$('.settle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showSettleModal(btn.dataset.to, parseFloat(btn.dataset.amount));
+    });
+  });
+
+  // Settlement delete buttons
+  $$('.settlement-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm('Excluir este acerto?')) {
+        try {
+          await API.deleteSettlement(btn.dataset.id);
+          showToast('Acerto excluído');
           renderGroup();
         } catch (err) {
           showToast(err.message, 'error');
