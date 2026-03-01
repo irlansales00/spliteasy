@@ -851,6 +851,10 @@ a:hover {
   box-shadow: var(--shadow-sm);
 }
 
+#tab-content {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
 /* ===== MEMBERS LIST ===== */
 .members-list {
   display: flex;

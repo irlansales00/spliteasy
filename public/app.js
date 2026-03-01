@@ -370,13 +370,50 @@ async function renderGroup() {
 
   $$('.group-tab').forEach(tab => {
     tab.addEventListener('click', () => {
+      if (tab.dataset.tab === state.activeTab) return; // already active
       state.activeTab = tab.dataset.tab;
-      renderGroup();
+      switchTab();
     });
   });
 
   $('#add-member-btn').addEventListener('click', showAddMemberModal);
+  bindTabListeners();
 
+  // Start polling
+  startPolling();
+}
+
+function switchTab() {
+  // Update tab button styles
+  $$('.group-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === state.activeTab);
+  });
+
+  // Fade out, swap content, fade in
+  const container = $('#tab-content');
+  if (!container) return;
+
+  container.style.opacity = '0';
+  container.style.transform = 'translateY(8px)';
+
+  setTimeout(() => {
+    const tab = state.activeTab;
+    container.innerHTML =
+      tab === 'expenses' ? renderExpensesTab() :
+        tab === 'balances' ? renderBalancesTab() :
+          renderSettlementsTab();
+
+    bindTabListeners();
+
+    // Trigger fade in
+    requestAnimationFrame(() => {
+      container.style.opacity = '1';
+      container.style.transform = 'translateY(0)';
+    });
+  }, 150);
+}
+
+function bindTabListeners() {
   const addExpBtn = $('#add-expense-btn');
   if (addExpBtn) addExpBtn.addEventListener('click', showAddExpenseModal);
 
@@ -402,9 +439,6 @@ async function renderGroup() {
       }
     });
   });
-
-  // Start polling
-  startPolling();
 }
 
 function renderExpensesTab() {
