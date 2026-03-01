@@ -1,12 +1,14 @@
 const express = require('express');
-const session = require('express-session');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const { createClient } = require('@libsql/client');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.SESSION_SECRET || 'splitwise-clone-secret-key-2025';
 
 // --- Database Setup (Turso / local libsql) ---
 let db;
@@ -14,16 +16,12 @@ let db;
 function getDB() {
     if (!db) {
         if (process.env.TURSO_DATABASE_URL) {
-            // Cloud Turso
             db = createClient({
                 url: process.env.TURSO_DATABASE_URL,
                 authToken: process.env.TURSO_AUTH_TOKEN,
             });
         } else {
-            // Local file-based SQLite for development
-            db = createClient({
-                url: 'file:./splitwise.db',
-            });
+            db = createClient({ url: 'file:./splitwise.db' });
         }
     }
     return db;
@@ -31,7 +29,6 @@ function getDB() {
 
 async function initDB() {
     const client = getDB();
-
     await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -41,7 +38,6 @@ async function initDB() {
       avatar_color TEXT DEFAULT '#1db954',
       created_at TEXT DEFAULT (datetime('now'))
     );
-
     CREATE TABLE IF NOT EXISTS groups_ (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -50,7 +46,6 @@ async function initDB() {
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (created_by) REFERENCES users(id)
     );
-
     CREATE TABLE IF NOT EXISTS group_members (
       group_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -58,7 +53,6 @@ async function initDB() {
       FOREIGN KEY (group_id) REFERENCES groups_(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
-
     CREATE TABLE IF NOT EXISTS expenses (
       id TEXT PRIMARY KEY,
       group_id TEXT NOT NULL,
@@ -70,7 +64,6 @@ async function initDB() {
       FOREIGN KEY (group_id) REFERENCES groups_(id),
       FOREIGN KEY (paid_by) REFERENCES users(id)
     );
-
     CREATE TABLE IF NOT EXISTS expense_splits (
       id TEXT PRIMARY KEY,
       expense_id TEXT NOT NULL,
@@ -79,7 +72,6 @@ async function initDB() {
       FOREIGN KEY (expense_id) REFERENCES expenses(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
-
     CREATE TABLE IF NOT EXISTS settlements (
       id TEXT PRIMARY KEY,
       group_id TEXT NOT NULL,
@@ -95,20 +87,17 @@ async function initDB() {
   `);
 }
 
-// Helper: query all rows
 async function queryAll(sql, args = []) {
     const client = getDB();
     const result = await client.execute({ sql, args });
     return result.rows;
 }
 
-// Helper: query one row
 async function queryOne(sql, args = []) {
     const rows = await queryAll(sql, args);
     return rows.length > 0 ? rows[0] : null;
 }
 
-// Helper: execute (INSERT/UPDATE/DELETE)
 async function execute(sql, args = []) {
     const client = getDB();
     return client.execute({ sql, args });
@@ -116,23 +105,37 @@ async function execute(sql, args = []) {
 
 // --- Middleware ---
 app.use(express.json());
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '..', 'public')));
-app.use(session({
-    secret: process.env.SESSION_SECRET || 'splitwise-clone-secret-key-2025',
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        secure: process.env.NODE_ENV === 'production' ? true : false,
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    }
-}));
+
+// JWT Auth helpers
+function createToken(userId) {
+    return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
+}
+
+function setAuthCookie(res, userId) {
+    const token = createToken(userId);
+    res.cookie('auth_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        path: '/',
+    });
+}
 
 function requireAuth(req, res, next) {
-    if (!req.session.userId) {
+    const token = req.cookies.auth_token;
+    if (!token) {
         return res.status(401).json({ error: 'Não autenticado' });
     }
-    next();
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.userId = decoded.userId;
+        next();
+    } catch {
+        return res.status(401).json({ error: 'Sessão expirada' });
+    }
 }
 
 // --- Ensure DB is initialized ---
@@ -169,7 +172,7 @@ app.post('/api/register', async (req, res) => {
         await execute('INSERT INTO users (id, username, email, password_hash, avatar_color) VALUES (?, ?, ?, ?, ?)',
             [id, username.toLowerCase(), email.toLowerCase(), password_hash, avatar_color]);
 
-        req.session.userId = id;
+        setAuthCookie(res, id);
         res.json({ id, username: username.toLowerCase(), email: email.toLowerCase(), avatar_color });
     } catch (err) {
         console.error(err);
@@ -191,7 +194,7 @@ app.post('/api/login', async (req, res) => {
             return res.status(401).json({ error: 'Usuário ou senha inválidos' });
         }
 
-        req.session.userId = user.id;
+        setAuthCookie(res, user.id);
         res.json({ id: user.id, username: user.username, email: user.email, avatar_color: user.avatar_color });
     } catch (err) {
         console.error(err);
@@ -200,12 +203,12 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => {
-    req.session.destroy();
+    res.clearCookie('auth_token', { path: '/' });
     res.json({ ok: true });
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-    const user = await queryOne('SELECT id, username, email, avatar_color FROM users WHERE id = ?', [req.session.userId]);
+    const user = await queryOne('SELECT id, username, email, avatar_color FROM users WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
     res.json(user);
 });
@@ -222,7 +225,7 @@ app.get('/api/groups', requireAuth, async (req, res) => {
       JOIN users u ON u.id = g.created_by
       WHERE gm.user_id = ?
       ORDER BY g.created_at DESC
-    `, [req.session.userId]);
+    `, [req.userId]);
         res.json(groups);
     } catch (err) {
         console.error(err);
@@ -237,9 +240,9 @@ app.post('/api/groups', requireAuth, async (req, res) => {
 
         const id = uuidv4();
         await execute('INSERT INTO groups_ (id, name, emoji, created_by) VALUES (?, ?, ?, ?)',
-            [id, name, emoji || '💰', req.session.userId]);
+            [id, name, emoji || '💰', req.userId]);
         await execute('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)',
-            [id, req.session.userId]);
+            [id, req.userId]);
 
         res.json({ id, name, emoji: emoji || '💰' });
     } catch (err) {
@@ -254,7 +257,7 @@ app.get('/api/groups/:id', requireAuth, async (req, res) => {
         if (!group) return res.status(404).json({ error: 'Grupo não encontrado' });
 
         const isMember = await queryOne('SELECT 1 as ok FROM group_members WHERE group_id = ? AND user_id = ?',
-            [req.params.id, req.session.userId]);
+            [req.params.id, req.userId]);
         if (!isMember) return res.status(403).json({ error: 'Acesso negado' });
 
         const members = await queryAll(`
@@ -277,7 +280,7 @@ app.post('/api/groups/:id/members', requireAuth, async (req, res) => {
         if (!username) return res.status(400).json({ error: 'Username é obrigatório' });
 
         const isMember = await queryOne('SELECT 1 as ok FROM group_members WHERE group_id = ? AND user_id = ?',
-            [req.params.id, req.session.userId]);
+            [req.params.id, req.userId]);
         if (!isMember) return res.status(403).json({ error: 'Acesso negado' });
 
         const user = await queryOne('SELECT id, username, avatar_color FROM users WHERE username = ?',
@@ -302,7 +305,7 @@ app.post('/api/groups/:id/members', requireAuth, async (req, res) => {
 app.get('/api/groups/:id/expenses', requireAuth, async (req, res) => {
     try {
         const isMember = await queryOne('SELECT 1 as ok FROM group_members WHERE group_id = ? AND user_id = ?',
-            [req.params.id, req.session.userId]);
+            [req.params.id, req.userId]);
         if (!isMember) return res.status(403).json({ error: 'Acesso negado' });
 
         const expenses = await queryAll(`
@@ -337,14 +340,14 @@ app.post('/api/groups/:id/expenses', requireAuth, async (req, res) => {
         }
 
         const isMember = await queryOne('SELECT 1 as ok FROM group_members WHERE group_id = ? AND user_id = ?',
-            [req.params.id, req.session.userId]);
+            [req.params.id, req.userId]);
         if (!isMember) return res.status(403).json({ error: 'Acesso negado' });
 
         const expenseId = uuidv4();
         const expenseDate = date || new Date().toISOString().split('T')[0];
 
         await execute('INSERT INTO expenses (id, group_id, paid_by, description, amount, date) VALUES (?, ?, ?, ?, ?, ?)',
-            [expenseId, req.params.id, req.session.userId, description, amount, expenseDate]);
+            [expenseId, req.params.id, req.userId, description, amount, expenseDate]);
 
         if (splits && splits.length > 0) {
             for (const split of splits) {
@@ -386,7 +389,7 @@ app.delete('/api/expenses/:id', requireAuth, async (req, res) => {
 app.get('/api/groups/:id/balances', requireAuth, async (req, res) => {
     try {
         const isMember = await queryOne('SELECT 1 as ok FROM group_members WHERE group_id = ? AND user_id = ?',
-            [req.params.id, req.session.userId]);
+            [req.params.id, req.userId]);
         if (!isMember) return res.status(403).json({ error: 'Acesso negado' });
 
         const members = await queryAll(`
@@ -397,43 +400,23 @@ app.get('/api/groups/:id/balances', requireAuth, async (req, res) => {
     `, [req.params.id]);
 
         const balances = {};
-        for (const m of members) {
-            balances[m.id] = { ...m, balance: 0 };
-        }
+        for (const m of members) { balances[m.id] = { ...m, balance: 0 }; }
 
-        const payments = await queryAll('SELECT paid_by, SUM(amount) as total FROM expenses WHERE group_id = ? GROUP BY paid_by',
-            [req.params.id]);
-        for (const p of payments) {
-            if (balances[p.paid_by]) balances[p.paid_by].balance += p.total;
-        }
+        const payments = await queryAll('SELECT paid_by, SUM(amount) as total FROM expenses WHERE group_id = ? GROUP BY paid_by', [req.params.id]);
+        for (const p of payments) { if (balances[p.paid_by]) balances[p.paid_by].balance += p.total; }
 
-        const splits = await queryAll(`
-      SELECT es.user_id, SUM(es.amount) as total
-      FROM expense_splits es
-      JOIN expenses e ON e.id = es.expense_id
-      WHERE e.group_id = ?
-      GROUP BY es.user_id
-    `, [req.params.id]);
-        for (const s of splits) {
-            if (balances[s.user_id]) balances[s.user_id].balance -= s.total;
-        }
+        const splits = await queryAll(`SELECT es.user_id, SUM(es.amount) as total FROM expense_splits es JOIN expenses e ON e.id = es.expense_id WHERE e.group_id = ? GROUP BY es.user_id`, [req.params.id]);
+        for (const s of splits) { if (balances[s.user_id]) balances[s.user_id].balance -= s.total; }
 
-        const settlementsFrom = await queryAll('SELECT from_user, SUM(amount) as total FROM settlements WHERE group_id = ? GROUP BY from_user',
-            [req.params.id]);
-        for (const s of settlementsFrom) {
-            if (balances[s.from_user]) balances[s.from_user].balance += s.total;
-        }
+        const settlementsFrom = await queryAll('SELECT from_user, SUM(amount) as total FROM settlements WHERE group_id = ? GROUP BY from_user', [req.params.id]);
+        for (const s of settlementsFrom) { if (balances[s.from_user]) balances[s.from_user].balance += s.total; }
 
-        const settlementsTo = await queryAll('SELECT to_user, SUM(amount) as total FROM settlements WHERE group_id = ? GROUP BY to_user',
-            [req.params.id]);
-        for (const s of settlementsTo) {
-            if (balances[s.to_user]) balances[s.to_user].balance -= s.total;
-        }
+        const settlementsTo = await queryAll('SELECT to_user, SUM(amount) as total FROM settlements WHERE group_id = ? GROUP BY to_user', [req.params.id]);
+        for (const s of settlementsTo) { if (balances[s.to_user]) balances[s.to_user].balance -= s.total; }
 
         const memberBalances = Object.values(balances);
-        const debtors = memberBalances.filter(m => m.balance < -0.01).map(m => ({ ...m, balance: m.balance }));
-        const creditors = memberBalances.filter(m => m.balance > 0.01).map(m => ({ ...m, balance: m.balance }));
-
+        const debtors = memberBalances.filter(m => m.balance < -0.01).map(m => ({ ...m }));
+        const creditors = memberBalances.filter(m => m.balance > 0.01).map(m => ({ ...m }));
         debtors.sort((a, b) => a.balance - b.balance);
         creditors.sort((a, b) => b.balance - a.balance);
 
@@ -471,7 +454,7 @@ app.post('/api/groups/:id/settle', requireAuth, async (req, res) => {
         const date = new Date().toISOString().split('T')[0];
 
         await execute('INSERT INTO settlements (id, group_id, from_user, to_user, amount, date) VALUES (?, ?, ?, ?, ?, ?)',
-            [id, req.params.id, req.session.userId, to_user, amount, date]);
+            [id, req.params.id, req.userId, to_user, amount, date]);
 
         res.json({ id, amount, date });
     } catch (err) {
@@ -480,13 +463,10 @@ app.post('/api/groups/:id/settle', requireAuth, async (req, res) => {
     }
 });
 
-// --- Settlements list ---
 app.get('/api/groups/:id/settlements', requireAuth, async (req, res) => {
     try {
         const settlements = await queryAll(`
-      SELECT s.*, 
-        uf.username as from_username, uf.avatar_color as from_color,
-        ut.username as to_username, ut.avatar_color as to_color
+      SELECT s.*, uf.username as from_username, uf.avatar_color as from_color, ut.username as to_username, ut.avatar_color as to_color
       FROM settlements s
       JOIN users uf ON uf.id = s.from_user
       JOIN users ut ON ut.id = s.to_user
@@ -500,24 +480,20 @@ app.get('/api/groups/:id/settlements', requireAuth, async (req, res) => {
     }
 });
 
-// --- Search users ---
 app.get('/api/users/search', requireAuth, async (req, res) => {
     const { q } = req.query;
     if (!q || q.length < 2) return res.json([]);
     const users = await queryAll('SELECT id, username, avatar_color FROM users WHERE username LIKE ? AND id != ? LIMIT 10',
-        [`%${q.toLowerCase()}%`, req.session.userId]);
+        [`%${q.toLowerCase()}%`, req.userId]);
     res.json(users);
 });
 
-// --- SPA fallback ---
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
-// Export for Vercel serverless
 module.exports = app;
 
-// Start server when running locally  
 if (require.main === module) {
     initDB().then(() => {
         app.listen(PORT, () => {
